@@ -2,8 +2,8 @@ package module
 
 import "gorm.io/gorm"
 
-type User struct {
+type Product struct {
 	gorm.Model
-	UserName string
-	Passwrod string
+	Code string
+	Price uint
 }

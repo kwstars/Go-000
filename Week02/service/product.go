@@ -4,6 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kwstars/Go-000/Week02/dao"
 	"github.com/kwstars/Go-000/Week02/module"
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
 	"log"
 	"net/http"
 	"strconv"
@@ -18,75 +20,37 @@ func ProvideProductService(p dao.ProductRepository) ProductService {
 }
 
 func (p *ProductService) FindAll(c *gin.Context) {
-	products := p.ProductRepository.FindAll()
-	c.JSON(http.StatusOK, gin.H{"products": ToProductDTOs(products)})
+	products, err := p.ProductRepository.FindAll()
+	switch {
+	//不会返回ErrRecordNotFound错误
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusOK, gin.H{"code": "1", "content": "没有找到记录"})
+	case err != nil:
+		log.Printf("FindALl failed, %+v", err)
+		c.JSON(http.StatusOK, gin.H{"code": "1", "content": "未知错误"})
+	default:
+		c.JSON(http.StatusOK, gin.H{"products": ToProductDTOs(products)})
+	}
 }
 
 func (p *ProductService) FindByID(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	product := p.ProductRepository.FindByID(uint(id))
-
-	c.JSON(http.StatusOK, gin.H{"product": ToProductDTO(product)})
-}
-
-func (p *ProductService) Create(c *gin.Context) {
-	var productDTO ProductDTO
-	err := c.BindJSON(&productDTO)
-	if err != nil {
-		log.Fatalln(err)
-		c.Status(http.StatusBadRequest)
-		return
+	product, err := p.ProductRepository.FindByID(uint(id))
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusOK, gin.H{"code": "1", "content": "没有找到记录"})
+	case err != nil:
+		log.Printf("FindALl failed, %+v", err)
+		c.JSON(http.StatusOK, gin.H{"code": "1", "content": "未知错误"})
+	default:
+		c.JSON(http.StatusOK, gin.H{"products": ToProductDTO(product)})
 	}
-
-	createdProduct := p.ProductRepository.Save(ToProduct(productDTO))
-
-	c.JSON(http.StatusOK, gin.H{"product": ToProductDTO(createdProduct)})
-}
-
-func (p *ProductService) Update(c *gin.Context) {
-	var productDTO ProductDTO
-	err := c.BindJSON(&productDTO)
-	if err != nil {
-		log.Fatalln(err)
-		c.Status(http.StatusBadRequest)
-		return
-	}
-
-	id, _ := strconv.Atoi(c.Param("id"))
-	product := p.ProductRepository.FindByID(uint(id))
-	if product == (module.Product{}) {
-		c.Status(http.StatusBadRequest)
-		return
-	}
-
-	product.Code = productDTO.Code
-	product.Price = productDTO.Price
-	p.ProductRepository.Save(product)
-
-	c.Status(http.StatusOK)
-}
-
-func (p *ProductService) Delete(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	product := p.ProductRepository.FindByID(uint(id))
-	if product == (module.Product{}) {
-		c.Status(http.StatusBadRequest)
-		return
-	}
-
-	p.ProductRepository.Delete(product)
-
-	c.Status(http.StatusOK)
 }
 
 type ProductDTO struct {
 	ID    uint   `json:"id,string,omitempty"`
 	Code  string `json:"code"`
 	Price uint   `json:"price,string"`
-}
-
-func ToProduct(productDTO ProductDTO) module.Product {
-	return module.Product{Code: productDTO.Code, Price: productDTO.Price}
 }
 
 func ToProductDTO(product module.Product) ProductDTO {
