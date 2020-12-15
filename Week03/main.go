@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"log"
@@ -12,21 +13,25 @@ import (
 	"time"
 )
 
-func ListenSingle(stopFunc func()) error {
+func ListenSignal(ctx context.Context) error {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGUSR1)
+	log.Printf("Start ListenSignal")
 	for {
-		s := <-c
-		log.Printf("Get signal %v", s)
-		switch s {
-		case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT, os.Interrupt:
-			log.Println("App exit")
-			stopFunc()
-			time.Sleep(3 * time.Second)
+		select {
+		case <-ctx.Done():
+			log.Println("Stop ListenSignal")
 			return nil
-		case syscall.SIGHUP:
-		default:
-			return nil
+		case s := <-c:
+			log.Printf("Get signal %v", s)
+			switch s {
+			case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT, os.Interrupt:
+				return errors.New("Gracefully shutdown the server")
+			case syscall.SIGHUP:
+				fmt.Println("Reload configuration file")
+			case syscall.SIGUSR1:
+				fmt.Println("Switch log mode")
+			}
 		}
 	}
 }
@@ -54,8 +59,7 @@ func WebService(ctx context.Context, name, port string) error {
 }
 
 func main() {
-	cancel, cancelFunc := context.WithCancel(context.Background())
-	g, ctx := errgroup.WithContext(cancel)
+	g, ctx := errgroup.WithContext(context.Background())
 
 	//server1
 	g.Go(func() error {
@@ -69,10 +73,17 @@ func main() {
 
 	//接收信号
 	g.Go(func() error {
-		return ListenSingle(cancelFunc)
+		return ListenSignal(ctx)
 	})
 
-	if err := g.Wait(); err != nil {
-		log.Printf("Server Error:%v\n", err)
-	}
+	// inject error
+	g.Go(func() error {
+		fmt.Println("inject")
+		time.Sleep(time.Second)
+		fmt.Println("inject finish")
+		return errors.New("inject error")
+	})
+
+	err := g.Wait()
+	log.Printf("%v\n", err)
 }
